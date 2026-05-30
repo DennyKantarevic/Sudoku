@@ -68,5 +68,5 @@ python -m pygbag --ume_block 0 --template static/sudoku.tmpl .
 ## Web Deployment
 
 The Vercel build uses pygbag to create a static web build in `build/web`.
-The repository includes `vercel.json` so Vercel can run the build command and
-serve the generated static output.
+The repository includes `vercel.json` and `package.json` so Vercel can run the
+pygbag build command and serve the generated static output.

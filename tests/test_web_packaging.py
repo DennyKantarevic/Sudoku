@@ -5,9 +5,12 @@ import unittest
 class WebPackagingTests(unittest.TestCase):
     def test_browserfs_is_available_at_pygbag_cdn_path(self):
         browserfs = Path("static/cdn/0.9.3/browserfs.min.js")
+        template = Path("static/sudoku.tmpl").read_text()
 
         self.assertTrue(browserfs.is_file())
         self.assertGreater(browserfs.stat().st_size, 100_000)
+        self.assertIn('src="cdn/0.9.3/browserfs.min.js"', template)
+        self.assertNotIn('{{cookiecutter.cdn}}/browserfs.min.js', template)
 
     def test_web_helper_skips_pygbag_gray_user_engagement_gate(self):
         script = Path("web.sh").read_text()

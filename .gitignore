@@ -9,3 +9,4 @@ web-cache/
 node_modules/
 package-lock.json
 .vercel
+.pygbag-venv/

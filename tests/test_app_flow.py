@@ -16,11 +16,14 @@ from constants import (
     LEADERBOARD_PANEL_WIDTH,
     RIGHT_PANEL_X,
     SIDE_PANEL_WIDTH,
+    UI_BORDER_WIDTH,
 )
 from sudoku import (
     DIFFICULTY_OPTIONS,
     LoadingAnimation,
     add_leaderboard_entry,
+    difficulty_hover_color,
+    difficulty_option_draw_rect,
     difficulty_from_click,
     elapsed_with_hint_penalty,
     format_score_time,
@@ -28,6 +31,8 @@ from sudoku import (
     hints_enabled_for_difficulty,
     hint_button_contains,
     number_from_key,
+    timer_border_segments,
+    update_difficulty_hover_progress,
     visible_leaderboard_entries,
 )
 
@@ -57,6 +62,39 @@ class AppFlowTests(unittest.TestCase):
             self.assertEqual(selected, option.name)
 
         self.assertIsNone(difficulty_from_click(-1, -1))
+
+    def test_difficulty_hover_styles_use_requested_colors_and_subtle_scale(self):
+        expected_colors = {
+            "easy": (45, 160, 80),
+            "medium": (218, 178, 0),
+            "hard": (205, 55, 55),
+        }
+
+        for option in DIFFICULTY_OPTIONS:
+            normal_rect = difficulty_option_draw_rect(option, 0)
+            hovered_rect = difficulty_option_draw_rect(option, 1)
+
+            self.assertEqual(difficulty_hover_color(option.name), expected_colors[option.name])
+            self.assertEqual(normal_rect, option.rect)
+            self.assertGreater(hovered_rect[2], normal_rect[2])
+            self.assertGreater(hovered_rect[3], normal_rect[3])
+            self.assertLessEqual(hovered_rect[2] / normal_rect[2], 1.08)
+            self.assertGreaterEqual(hovered_rect[2] / normal_rect[2], 1.04)
+
+    def test_difficulty_hover_progress_eases_toward_hovered_option(self):
+        progress = {option.name: 0 for option in DIFFICULTY_OPTIONS}
+        easy = DIFFICULTY_OPTIONS[0]
+
+        progress = update_difficulty_hover_progress(progress, easy.center)
+
+        self.assertGreater(progress["easy"], 0)
+        self.assertLess(progress["easy"], 1)
+        self.assertEqual(progress["medium"], 0)
+        self.assertEqual(progress["hard"], 0)
+        self.assertGreater(difficulty_option_draw_rect(easy, progress["easy"])[2], easy.width)
+
+    def test_timer_top_border_closes_between_panel_lines_with_ui_width(self):
+        self.assertEqual(timer_border_segments(), [((SIDE_PANEL_WIDTH, 0), (RIGHT_PANEL_X, 0), UI_BORDER_WIDTH)])
 
     def test_empty_key_unicode_is_not_treated_as_number(self):
         event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT, unicode="")

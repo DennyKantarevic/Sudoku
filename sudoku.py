@@ -44,6 +44,13 @@ DIFFICULTY_OPTIONS = (
     DifficultyOption("medium", "Medium", BOARD_SIZE // 2 - 120, 375, 240, 55),
     DifficultyOption("hard", "Hard", BOARD_SIZE // 2 - 120, 450, 240, 55),
 )
+DIFFICULTY_HOVER_COLORS = {
+    "easy": (45, 160, 80),
+    "medium": (218, 178, 0),
+    "hard": (205, 55, 55),
+}
+DIFFICULTY_HOVER_SCALE = 1.06
+DIFFICULTY_HOVER_EASING = 0.2
 
 RULES_LINES = (
     "Sudoku Rules",
@@ -218,6 +225,36 @@ def difficulty_from_click(x, y):
     return None
 
 
+def difficulty_hover_color(difficulty):
+    return DIFFICULTY_HOVER_COLORS[str(difficulty).lower()]
+
+
+def difficulty_option_draw_rect(option, hover_progress):
+    hover_progress = max(0, min(1, float(hover_progress)))
+    scale = 1 + (DIFFICULTY_HOVER_SCALE - 1) * hover_progress
+    width = round(option.width * scale)
+    height = round(option.height * scale)
+    center_x, center_y = option.center
+    return (
+        round(center_x - width / 2),
+        round(center_y - height / 2),
+        width,
+        height,
+    )
+
+
+def update_difficulty_hover_progress(progress, mouse_pos):
+    updated_progress = {}
+    for option in DIFFICULTY_OPTIONS:
+        target = 1 if option.contains(*mouse_pos) else 0
+        current = float(progress.get(option.name, 0))
+        eased = current + (target - current) * DIFFICULTY_HOVER_EASING
+        if abs(eased - target) < 0.01:
+            eased = target
+        updated_progress[option.name] = max(0, min(1, eased))
+    return updated_progress
+
+
 def hint_button_contains(x, y):
     button_x, button_y, button_width, button_height = HINT_BUTTON_RECT
     return button_x <= x <= button_x + button_width and button_y <= y <= button_y + button_height
@@ -273,9 +310,10 @@ def draw_loading_screen(surface, animation):
     draw_grid(surface)
 
 
-def draw_difficulty_prompt(surface):
+def draw_difficulty_prompt(surface, hover_progress=None):
     title_font = pygame.font.Font(None, NUM_FONT)
     option_font = pygame.font.Font(None, SKETCH_FONT)
+    hover_progress = hover_progress or {option.name: 0 for option in DIFFICULTY_OPTIONS}
     surface.fill(BG_COLOR)
 
     title = title_font.render("Select Difficulty", True, BLACK)
@@ -283,13 +321,26 @@ def draw_difficulty_prompt(surface):
     surface.blit(title, title_rect)
 
     for option in DIFFICULTY_OPTIONS:
-        pygame.draw.rect(surface, BLACK, option.rect, 2)
-        label = option_font.render(option.label, True, BLACK)
+        progress = hover_progress.get(option.name, 0)
+        color = difficulty_hover_color(option.name) if progress > 0 else BLACK
+        rect = difficulty_option_draw_rect(option, progress)
+        pygame.draw.rect(surface, color, rect, 2)
+        label = option_font.render(option.label, True, color)
         label_rect = label.get_rect(center=option.center)
         surface.blit(label, label_rect)
 
 
+def timer_border_segments():
+    return [((BOARD_X_OFFSET, 0), (RIGHT_PANEL_X, 0), UI_BORDER_WIDTH)]
+
+
+def draw_timer_border(surface):
+    for start, end, width in timer_border_segments():
+        pygame.draw.line(surface, BLACK, start, end, width)
+
+
 def draw_timer(surface, elapsed_seconds):
+    draw_timer_border(surface)
     timer_font = pygame.font.Font(None, TIMER_FONT)
     timer = timer_font.render(format_time(elapsed_seconds), True, BLACK)
     timer_rect = timer.get_rect(center=(BOARD_X_OFFSET + BOARD_SIZE / 2, TIMER_HEIGHT / 2))
@@ -303,7 +354,7 @@ def draw_left_panel(surface, hints_enabled=True):
     x, y, width, height = HINT_BUTTON_RECT
     rules_x, rules_y, rules_width, rules_height = RULES_BOX_RECT
 
-    pygame.draw.line(surface, BLACK, (SIDE_PANEL_WIDTH, 0), (SIDE_PANEL_WIDTH, GAME_HEIGHT), 2)
+    pygame.draw.line(surface, BLACK, (SIDE_PANEL_WIDTH, 0), (SIDE_PANEL_WIDTH, GAME_HEIGHT), UI_BORDER_WIDTH)
     if hints_enabled:
         pygame.draw.rect(surface, BLACK, HINT_BUTTON_RECT, 2)
         label = button_font.render("Hint", True, BLACK)
@@ -326,7 +377,7 @@ def draw_leaderboard_panel(surface, leaderboard):
     entry_font = pygame.font.Font(None, RULES_FONT)
     box_x, box_y, box_width, box_height = LEADERBOARD_BOX_RECT
 
-    pygame.draw.line(surface, BLACK, (RIGHT_PANEL_X, 0), (RIGHT_PANEL_X, GAME_HEIGHT), 2)
+    pygame.draw.line(surface, BLACK, (RIGHT_PANEL_X, 0), (RIGHT_PANEL_X, GAME_HEIGHT), UI_BORDER_WIDTH)
     pygame.draw.rect(surface, BLACK, LEADERBOARD_BOX_RECT, 2)
 
     title = title_font.render("Leaderboard", True, BLACK)
@@ -400,9 +451,10 @@ async def main():
     hint_penalty_seconds = 0
     player_name = ""
     leaderboard = load_leaderboard()
+    difficulty_hover_progress = {option.name: 0 for option in DIFFICULTY_OPTIONS}
 
     if used_browser_preloader:
-        draw_difficulty_prompt(surface)
+        draw_difficulty_prompt(surface, difficulty_hover_progress)
         pygame.display.update()
         hide_browser_preloader()
 
@@ -498,7 +550,11 @@ async def main():
             if loading_animation.is_complete():
                 state = STATE_DIFFICULTY
         elif state == STATE_DIFFICULTY:
-            draw_difficulty_prompt(surface)
+            difficulty_hover_progress = update_difficulty_hover_progress(
+                difficulty_hover_progress,
+                pygame.mouse.get_pos(),
+            )
+            draw_difficulty_prompt(surface, difficulty_hover_progress)
         elif board is not None:
             if completed_elapsed_seconds is None:
                 base_elapsed_seconds = (pygame.time.get_ticks() - game_start_ticks) // 1000

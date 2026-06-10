@@ -17,6 +17,7 @@ class Board:
         self.screen = screen
         self.y_offset = y_offset
         self.x_offset = x_offset
+        self.duplicate_entry_blocking_enabled = self._duplicate_entry_blocking_enabled(difficulty)
         difficulty = self._difficulty_to_removed_cells(difficulty)
         generator = SudokuGenerator(9, difficulty, rng)
         generator.fill_values()
@@ -43,6 +44,11 @@ class Board:
             if difficulty == "hard":
                 return DIFFICULTY_REMOVED_CELLS["hard"]
         return int(difficulty)
+
+    def _duplicate_entry_blocking_enabled(self, difficulty):
+        if isinstance(difficulty, str):
+            return difficulty.lower() not in ("medium", "hard")
+        return True
 
     def select(self, row, col):
         """Marks a cell as selected."""
@@ -90,7 +96,7 @@ class Board:
             self.cells[row][col].set_sketched_value(value)
 
     def place_number(self, value):
-        """Places a number only when it matches the generated solution."""
+        """Places a number in the selected editable cell."""
         if self.selected is None:
             return False
 
@@ -101,7 +107,7 @@ class Board:
         if not self.is_valid_move(row, col, value):
             return False
 
-        if self.solution[row][col] != value:
+        if self.duplicate_entry_blocking_enabled and self.solution[row][col] != value:
             return False
 
         self.board[row][col] = value
@@ -159,6 +165,8 @@ class Board:
             return False
         if value < 1 or value > 9:
             return False
+        if not self.duplicate_entry_blocking_enabled:
+            return True
 
         for check_col in range(9):
             if check_col != col and self._visible_value_at(row, check_col) == value:

@@ -110,6 +110,25 @@ def elapsed_with_hint_penalty(base_elapsed_seconds, hint_penalty_seconds):
     return int(base_elapsed_seconds) + int(hint_penalty_seconds)
 
 
+def freeze_elapsed_seconds(completed_elapsed_seconds, game_start_ticks, current_ticks, hint_penalty_seconds):
+    if completed_elapsed_seconds is not None:
+        return completed_elapsed_seconds
+    base_elapsed_seconds = (current_ticks - game_start_ticks) // 1000
+    return elapsed_with_hint_penalty(base_elapsed_seconds, hint_penalty_seconds)
+
+
+def hint_feedback_alpha(start_ticks, current_ticks):
+    if start_ticks is None:
+        return 0
+    elapsed_ticks = current_ticks - start_ticks
+    if elapsed_ticks < 0:
+        elapsed_ticks = 0
+    if elapsed_ticks >= HINT_FEEDBACK_DURATION_MS:
+        return 0
+    remaining = 1 - (elapsed_ticks / HINT_FEEDBACK_DURATION_MS)
+    return max(0, min(255, round(255 * remaining)))
+
+
 def hints_enabled_for_difficulty(difficulty):
     return str(difficulty).lower() != "hard"
 
@@ -347,6 +366,18 @@ def draw_timer(surface, elapsed_seconds):
     surface.blit(timer, timer_rect)
 
 
+def draw_hint_feedback(surface, alpha):
+    if alpha <= 0:
+        return
+
+    feedback_font = pygame.font.Font(None, TIMER_FONT)
+    text = feedback_font.render(f"+{HINT_PENALTY_SECONDS}", True, RED)
+    text.set_alpha(alpha)
+    button_x, button_y, button_width, _ = HINT_BUTTON_RECT
+    text_rect = text.get_rect(center=(button_x + button_width / 2, button_y - 20))
+    surface.blit(text, text_rect)
+
+
 def draw_left_panel(surface, hints_enabled=True):
     button_font = pygame.font.Font(None, SKETCH_FONT)
     rules_title_font = pygame.font.Font(None, TIMER_FONT)
@@ -426,9 +457,10 @@ def draw_win_screen(surface, elapsed_seconds, player_name):
     surface.blit(submit, submit_rect)
 
 
-def draw_game(surface, board, elapsed_seconds, leaderboard=(), hints_enabled=True):
+def draw_game(surface, board, elapsed_seconds, leaderboard=(), hints_enabled=True, hint_feedback_alpha_value=0):
     surface.fill(BG_COLOR)
     draw_left_panel(surface, hints_enabled)
+    draw_hint_feedback(surface, hint_feedback_alpha_value)
     draw_leaderboard_panel(surface, leaderboard)
     draw_timer(surface, elapsed_seconds)
     board.draw()
@@ -449,6 +481,7 @@ async def main():
     completed_elapsed_seconds = None
     current_difficulty = None
     hint_penalty_seconds = 0
+    hint_feedback_start_ticks = None
     player_name = ""
     leaderboard = load_leaderboard()
     difficulty_hover_progress = {option.name: 0 for option in DIFFICULTY_OPTIONS}
@@ -459,13 +492,14 @@ async def main():
         hide_browser_preloader()
 
     def start_game(difficulty):
-        nonlocal board, game_start_ticks, completed_elapsed_seconds, current_difficulty, hint_penalty_seconds, player_name, state, surface
+        nonlocal board, game_start_ticks, completed_elapsed_seconds, current_difficulty, hint_penalty_seconds, hint_feedback_start_ticks, player_name, state, surface
         surface = pygame.display.set_mode((GAME_WIDTH, GAME_HEIGHT))
         board = Board(BOARD_SIZE, BOARD_SIZE, surface, difficulty, TIMER_HEIGHT, x_offset=BOARD_X_OFFSET)
         game_start_ticks = pygame.time.get_ticks()
         completed_elapsed_seconds = None
         current_difficulty = difficulty
         hint_penalty_seconds = 0
+        hint_feedback_start_ticks = None
         player_name = ""
         state = STATE_PLAYING
         pygame.display.set_caption(f"Sudoku - {difficulty.title()}")
@@ -473,9 +507,12 @@ async def main():
     def finish_if_complete():
         nonlocal completed_elapsed_seconds, state
         if board is not None and board.is_full() and board.check_board():
-            if completed_elapsed_seconds is None:
-                base_elapsed_seconds = (pygame.time.get_ticks() - game_start_ticks) // 1000
-                completed_elapsed_seconds = elapsed_with_hint_penalty(base_elapsed_seconds, hint_penalty_seconds)
+            completed_elapsed_seconds = freeze_elapsed_seconds(
+                completed_elapsed_seconds,
+                game_start_ticks,
+                pygame.time.get_ticks(),
+                hint_penalty_seconds,
+            )
             state = STATE_WIN
             pygame.display.set_caption("Sudoku - Complete")
 
@@ -521,6 +558,7 @@ async def main():
                 if hints_enabled_for_difficulty(current_difficulty) and hint_button_contains(*event.pos):
                     if board.reveal_hint() is not None:
                         hint_penalty_seconds += HINT_PENALTY_SECONDS
+                        hint_feedback_start_ticks = pygame.time.get_ticks()
                     finish_if_complete()
                     continue
 
@@ -561,7 +599,15 @@ async def main():
                 elapsed_seconds = elapsed_with_hint_penalty(base_elapsed_seconds, hint_penalty_seconds)
             else:
                 elapsed_seconds = completed_elapsed_seconds
-            draw_game(surface, board, elapsed_seconds, leaderboard, hints_enabled_for_difficulty(current_difficulty))
+            feedback_alpha = hint_feedback_alpha(hint_feedback_start_ticks, pygame.time.get_ticks())
+            draw_game(
+                surface,
+                board,
+                elapsed_seconds,
+                leaderboard,
+                hints_enabled_for_difficulty(current_difficulty),
+                feedback_alpha,
+            )
             if state == STATE_WIN:
                 draw_win_screen(surface, elapsed_seconds, player_name)
 

@@ -20,6 +20,23 @@ class BoardLogicTests(unittest.TestCase):
     def tearDownClass(cls):
         pygame.quit()
 
+    def make_single_editable_cell(self, board, row=0, col=0):
+        board.board = [solution_row[:] for solution_row in board.solution]
+        board.original_board = [solution_row[:] for solution_row in board.solution]
+        for cell_row_index in range(9):
+            for cell_col_index in range(9):
+                cell = board.cells[cell_row_index][cell_col_index]
+                cell.set_cell_value(board.solution[cell_row_index][cell_col_index])
+                cell.set_sketched_value(0)
+                cell.is_hint = False
+                cell.fixed = True
+
+        board.board[row][col] = 0
+        board.original_board[row][col] = 0
+        board.cells[row][col].set_cell_value(0)
+        board.cells[row][col].fixed = False
+        return row, col
+
     def test_place_number_only_accepts_generated_solution_value(self):
         board = Board(BOARD_SIZE, BOARD_SIZE, self.screen, 1)
         row, col = board.find_empty()
@@ -185,6 +202,47 @@ class BoardLogicTests(unittest.TestCase):
         self.assertFalse(board.place_number(correct_value))
         self.assertEqual(board.board[row][col], 0)
         self.assertEqual(board.cells[row][col].value, 0)
+
+    def test_easy_blocks_duplicate_sketches_and_placements(self):
+        board = Board(BOARD_SIZE, BOARD_SIZE, self.screen, "easy")
+        row, col = self.make_single_editable_cell(board)
+        duplicate_value = board.board[row][1]
+        board.select(row, col)
+
+        board.sketch(duplicate_value)
+
+        self.assertFalse(board.is_valid_move(row, col, duplicate_value))
+        self.assertEqual(board.cells[row][col].sketched_value, 0)
+        self.assertFalse(board.place_number(duplicate_value))
+        self.assertEqual(board.board[row][col], 0)
+        self.assertEqual(board.cells[row][col].value, 0)
+
+    def test_medium_and_hard_allow_conflicting_entries_while_playing(self):
+        for difficulty in ("medium", "hard"):
+            with self.subTest(difficulty=difficulty):
+                board = Board(BOARD_SIZE, BOARD_SIZE, self.screen, difficulty)
+                row, col = self.make_single_editable_cell(board)
+                duplicate_value = board.board[row][1]
+                board.select(row, col)
+
+                board.sketch(duplicate_value)
+
+                self.assertTrue(board.is_valid_move(row, col, duplicate_value))
+                self.assertEqual(board.cells[row][col].sketched_value, duplicate_value)
+                self.assertTrue(board.place_number(duplicate_value))
+                self.assertEqual(board.board[row][col], duplicate_value)
+                self.assertEqual(board.cells[row][col].value, duplicate_value)
+                self.assertEqual(board.cells[row][col].sketched_value, 0)
+
+    def test_medium_and_hard_reject_completed_boards_that_do_not_match_solution(self):
+        for difficulty in ("medium", "hard"):
+            with self.subTest(difficulty=difficulty):
+                board = Board(BOARD_SIZE, BOARD_SIZE, self.screen, difficulty)
+                board.board = [row[:] for row in board.solution]
+                board.board[0][0] = board.board[0][1]
+
+                self.assertTrue(board.is_full())
+                self.assertFalse(board.check_board())
 
     def test_difficulties_use_distinct_starting_clue_counts(self):
         expected_clues = {"easy": 51, "medium": 41, "hard": 31}

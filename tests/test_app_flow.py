@@ -11,6 +11,7 @@ from constants import (
     BOARD_SIZE,
     GAME_HEIGHT,
     GAME_WIDTH,
+    HINT_FEEDBACK_DURATION_MS,
     HINT_PENALTY_SECONDS,
     HINT_BUTTON_RECT,
     LEADERBOARD_PANEL_WIDTH,
@@ -26,8 +27,10 @@ from sudoku import (
     difficulty_option_draw_rect,
     difficulty_from_click,
     elapsed_with_hint_penalty,
+    freeze_elapsed_seconds,
     format_score_time,
     format_time,
+    hint_feedback_alpha,
     hints_enabled_for_difficulty,
     hint_button_contains,
     number_from_key,
@@ -122,6 +125,20 @@ class AppFlowTests(unittest.TestCase):
         self.assertEqual(elapsed_with_hint_penalty(120, 0), 120)
         self.assertEqual(elapsed_with_hint_penalty(120, 15), 135)
         self.assertEqual(elapsed_with_hint_penalty(120, 30), 150)
+
+    def test_freeze_elapsed_time_reuses_completed_time_after_win(self):
+        frozen_time = freeze_elapsed_seconds(None, 1_000, 136_000, 15)
+
+        self.assertEqual(frozen_time, 150)
+        self.assertEqual(freeze_elapsed_seconds(frozen_time, 1_000, 999_000, 45), 150)
+
+    def test_hint_feedback_alpha_fades_then_disappears(self):
+        start_ticks = 5_000
+
+        self.assertEqual(hint_feedback_alpha(start_ticks, start_ticks), 255)
+        self.assertLess(hint_feedback_alpha(start_ticks, start_ticks + HINT_FEEDBACK_DURATION_MS // 2), 255)
+        self.assertEqual(hint_feedback_alpha(start_ticks, start_ticks + HINT_FEEDBACK_DURATION_MS), 0)
+        self.assertEqual(hint_feedback_alpha(None, start_ticks), 0)
 
     def test_hints_are_disabled_only_for_hard_difficulty(self):
         self.assertTrue(hints_enabled_for_difficulty("easy"))

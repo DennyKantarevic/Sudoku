@@ -129,6 +129,31 @@ def hint_feedback_alpha(start_ticks, current_ticks):
     return max(0, min(255, round(255 * remaining)))
 
 
+def apply_number_input(board, value):
+    if board is None or board.selected is None:
+        return False
+    if board.place_number(value):
+        return True
+
+    row, col = board.selected
+    before_sketch = board.cells[row][col].sketched_value
+    board.sketch(value)
+    return board.cells[row][col].sketched_value != before_sketch
+
+
+def reset_gameplay_state_values():
+    return {
+        "board": None,
+        "game_start_ticks": None,
+        "completed_elapsed_seconds": None,
+        "current_difficulty": None,
+        "hint_penalty_seconds": 0,
+        "hint_feedback_start_ticks": None,
+        "player_name": "",
+        "state": STATE_DIFFICULTY,
+    }
+
+
 def hints_enabled_for_difficulty(difficulty):
     return str(difficulty).lower() != "hard"
 
@@ -279,6 +304,11 @@ def hint_button_contains(x, y):
     return button_x <= x <= button_x + button_width and button_y <= y <= button_y + button_height
 
 
+def back_button_contains(x, y):
+    button_x, button_y, button_width, button_height = BACK_BUTTON_RECT
+    return button_x <= x <= button_x + button_width and button_y <= y <= button_y + button_height
+
+
 def point_in_rect(point, rect):
     x, y = point
     rect_x, rect_y, rect_width, rect_height = rect
@@ -373,24 +403,30 @@ def draw_hint_feedback(surface, alpha):
     feedback_font = pygame.font.Font(None, TIMER_FONT)
     text = feedback_font.render(f"+{HINT_PENALTY_SECONDS}", True, RED)
     text.set_alpha(alpha)
-    button_x, button_y, button_width, _ = HINT_BUTTON_RECT
-    text_rect = text.get_rect(center=(button_x + button_width / 2, button_y - 20))
+    button_x, button_y, button_width, button_height = HINT_BUTTON_RECT
+    text_rect = text.get_rect(center=(button_x + button_width / 2, button_y + button_height + 12))
     surface.blit(text, text_rect)
 
 
-def draw_left_panel(surface, hints_enabled=True):
+def draw_button(surface, rect, label, font):
+    x, y, width, height = rect
+    pygame.draw.rect(surface, BLACK, rect, 2)
+    rendered_label = font.render(label, True, BLACK)
+    label_rect = rendered_label.get_rect(center=(x + width / 2, y + height / 2))
+    surface.blit(rendered_label, label_rect)
+
+
+def draw_left_panel(surface, hints_enabled=True, back_enabled=True):
     button_font = pygame.font.Font(None, SKETCH_FONT)
     rules_title_font = pygame.font.Font(None, TIMER_FONT)
     rules_font = pygame.font.Font(None, RULES_FONT)
-    x, y, width, height = HINT_BUTTON_RECT
     rules_x, rules_y, rules_width, rules_height = RULES_BOX_RECT
 
     pygame.draw.line(surface, BLACK, (SIDE_PANEL_WIDTH, 0), (SIDE_PANEL_WIDTH, GAME_HEIGHT), UI_BORDER_WIDTH)
+    if back_enabled:
+        draw_button(surface, BACK_BUTTON_RECT, "Back", button_font)
     if hints_enabled:
-        pygame.draw.rect(surface, BLACK, HINT_BUTTON_RECT, 2)
-        label = button_font.render("Hint", True, BLACK)
-        label_rect = label.get_rect(center=(x + width / 2, y + height / 2))
-        surface.blit(label, label_rect)
+        draw_button(surface, HINT_BUTTON_RECT, "Hint", button_font)
 
     pygame.draw.rect(surface, BLACK, RULES_BOX_RECT, 2)
     rules_y += 14
@@ -457,9 +493,9 @@ def draw_win_screen(surface, elapsed_seconds, player_name):
     surface.blit(submit, submit_rect)
 
 
-def draw_game(surface, board, elapsed_seconds, leaderboard=(), hints_enabled=True, hint_feedback_alpha_value=0):
+def draw_game(surface, board, elapsed_seconds, leaderboard=(), hints_enabled=True, hint_feedback_alpha_value=0, back_enabled=True):
     surface.fill(BG_COLOR)
-    draw_left_panel(surface, hints_enabled)
+    draw_left_panel(surface, hints_enabled, back_enabled)
     draw_hint_feedback(surface, hint_feedback_alpha_value)
     draw_leaderboard_panel(surface, leaderboard)
     draw_timer(surface, elapsed_seconds)
@@ -516,6 +552,20 @@ async def main():
             state = STATE_WIN
             pygame.display.set_caption("Sudoku - Complete")
 
+    def return_to_difficulty_selection():
+        nonlocal board, game_start_ticks, completed_elapsed_seconds, current_difficulty, hint_penalty_seconds, hint_feedback_start_ticks, player_name, state, surface
+        reset_values = reset_gameplay_state_values()
+        board = reset_values["board"]
+        game_start_ticks = reset_values["game_start_ticks"]
+        completed_elapsed_seconds = reset_values["completed_elapsed_seconds"]
+        current_difficulty = reset_values["current_difficulty"]
+        hint_penalty_seconds = reset_values["hint_penalty_seconds"]
+        hint_feedback_start_ticks = reset_values["hint_feedback_start_ticks"]
+        player_name = reset_values["player_name"]
+        state = reset_values["state"]
+        surface = pygame.display.set_mode((BOARD_SIZE, BOARD_SIZE))
+        pygame.display.set_caption("Sudoku")
+
     def submit_win_name():
         nonlocal leaderboard
         if current_difficulty is None or completed_elapsed_seconds is None:
@@ -555,6 +605,10 @@ async def main():
             elif state != STATE_PLAYING:
                 continue
             elif event.type == pygame.MOUSEBUTTONDOWN:
+                if back_button_contains(*event.pos):
+                    return_to_difficulty_selection()
+                    continue
+
                 if hints_enabled_for_difficulty(current_difficulty) and hint_button_contains(*event.pos):
                     if board.reveal_hint() is not None:
                         hint_penalty_seconds += HINT_PENALTY_SECONDS
@@ -568,17 +622,19 @@ async def main():
             elif event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_BACKSPACE, pygame.K_DELETE):
                     board.clear()
+                    finish_if_complete()
                 elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                     if board.selected is not None:
                         row, col = board.selected
                         value = board.cells[row][col].sketched_value
                         if value != 0:
                             board.place_number(value)
-                            finish_if_complete()
+                        finish_if_complete()
                 else:
                     value = number_from_key(event)
                     if value is not None:
-                        board.sketch(value)
+                        apply_number_input(board, value)
+                        finish_if_complete()
 
         if state == STATE_LOADING:
             if frame_count % loading_frame_delay == 0:
@@ -607,6 +663,7 @@ async def main():
                 leaderboard,
                 hints_enabled_for_difficulty(current_difficulty),
                 feedback_alpha,
+                state == STATE_PLAYING,
             )
             if state == STATE_WIN:
                 draw_win_screen(surface, elapsed_seconds, player_name)
